@@ -41,6 +41,8 @@ fun LauncherUI.PageControlCenter() {
     var wireBareStatus by remember { mutableStateOf(ProxyStatus.DEAD) }
     var maybeUnsupportedIPv6 by remember { mutableStateOf(false) }
     val capturedUid by UidCaptureState.uidFlow.collectAsState()
+    val matchedUrl by UidCaptureState.matchedUrlFlow.collectAsState()
+    val rawBody by UidCaptureState.rawFlow.collectAsState()
     LaunchedEffect(Unit) {
         proxyStatusFlow.collect {
             maybeUnsupportedIPv6 = false
@@ -67,13 +69,13 @@ fun LauncherUI.PageControlCenter() {
         StatusBarSpacer(56.dp)
         ControlBox(wireBareStatus, maybeUnsupportedIPv6)
         Spacer(modifier = Modifier.height(12.dp))
-        UidBox(capturedUid)
+        UidBox(capturedUid, matchedUrl, rawBody)
         Spacer(modifier = Modifier.height(80.dp))
     }
 }
 
 @Composable
-private fun UidBox(uid: String?) {
+private fun UidBox(uid: String?, matchedUrl: String?, rawBody: String?) {
     AppRoundCornerBox {
         RealColumn(
             modifier = Modifier
@@ -90,6 +92,28 @@ private fun UidBox(uid: String?) {
                 style = Typographies.bodySmall,
                 color = if (uid != null) Colors.primary else Typographies.bodySmall.color
             )
+            if (matchedUrl != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = Colors.background)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "匹配到的 URL:", style = Typographies.bodySmall)
+                Text(
+                    text = matchedUrl,
+                    style = Typographies.bodySmall,
+                    color = Typographies.bodySmall.color
+                )
+            }
+            if (rawBody != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = Colors.background)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "响应体:", style = Typographies.bodySmall)
+                Text(
+                    text = rawBody.take(500),
+                    style = Typographies.bodySmall,
+                    color = Typographies.bodySmall.color
+                )
+            }
         }
     }
 }

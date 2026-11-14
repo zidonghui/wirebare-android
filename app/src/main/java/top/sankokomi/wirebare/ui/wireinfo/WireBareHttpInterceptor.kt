@@ -5,28 +5,27 @@ import top.sankokomi.wirebare.kernel.interceptor.http.async.AsyncHttpIndexedInte
 import top.sankokomi.wirebare.kernel.interceptor.http.async.AsyncHttpInterceptChain
 import top.sankokomi.wirebare.kernel.interceptor.http.async.AsyncHttpInterceptor
 import top.sankokomi.wirebare.kernel.interceptor.http.async.AsyncHttpInterceptorFactory
+import top.sankokomi.wirebare.kernel.util.uncompressGzip
 import top.sankokomi.wirebare.ui.record.HttpRecorder
+import top.sankokomi.wirebare.ui.record.getHttpRecordFileById
+import top.sankokomi.wirebare.ui.record.httpBody
 import top.sankokomi.wirebare.ui.record.id
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 
-/** 需要捕获 uid 的接口路径关键字 */
-private const val CHECK_LOGIN_PATH_KEYWORD = "logs.quickapi.net/v2/users/checkLogin"
+/** 需要捕获 uid 的接口路径关键字（放宽匹配，不写死域名） */
+private const val CHECK_LOGIN_PATH_KEYWORD = "checkLogin"
 
 class WireBareHttpInterceptor(
     private val onRequest: (HttpSession) -> Unit,
     private val onResponse: (HttpSession) -> Unit
 ) : AsyncHttpIndexedInterceptor() {
 
-    /**
-     * 仅当响应 URL 命中 checkLogin 时，按 response.id 累积响应体，
-     * 等 onResponseFinished 后统一解析。
-     */
-    private val bodyAccumulators = ConcurrentHashMap<String, ByteArrayOutputStream>()
+    /** 命中目标接口的 response.id 集合，等响应结束后从记录文件里解析 body */
+    private val targetIds = ConcurrentHashMap.newKeySet<String>()
 
     class Factory(
         private val onRequest: (HttpSession) -> Unit,
@@ -70,20 +69,11 @@ class WireBareHttpInterceptor(
             HttpRecorder.addResponseRecord(session)
             HttpRecorder.addReqRspPairRecord(session)
             onResponse(session)
-            // 判断是否命中目标接口
+            // 命中目标接口，登记 id，等响应结束后解析 body
             val url = session.response.url.orEmpty()
-            if (url.contains(CHECK_LOGIN_PATH_KEYWORD)) {
-                bodyAccumulators[session.response.id] = ByteArrayOutputStream()
-            }
-        }
-        // 如果该 session 需要捕获 body，则复制一份 buffer 累积（不影响后续写出文件）
-        val accumulator = bodyAccumulators[session.response.id]
-        if (accumulator != null) {
-            runCatching {
-                val dup = buffer.duplicate()
-                val arr = ByteArray(dup.remaining())
-                dup.get(arr)
-                accumulator.write(arr)
+            if (url.contains(CHECK_LOGIN_PATH_KEYWORD, ignoreCase = true)) {
+                targetIds.add(session.response.id)
+                UidCaptureState.onMatched(url)
             }
         }
         HttpRecorder.saveResponseBytes(session.response, buffer)
@@ -95,15 +85,22 @@ class WireBareHttpInterceptor(
         session: HttpSession,
         index: Int
     ) {
+        // 先让 HttpRecorder 把响应字节落盘并关闭 writer
         HttpRecorder.saveResponseBytes(session.response, null)
-        // 命中目标接口的响应已收完，解析 uid
-        val accumulator = bodyAccumulators.remove(session.response.id)
-        if (accumulator != null) {
+        val id = session.response.id
+        if (targetIds.remove(id)) {
             withContext(Dispatchers.IO) {
                 runCatching {
-                    val raw = accumulator.toByteArray().toString(Charsets.UTF_8)
-                    val uid = extractUid(raw)
-                    UidCaptureState.update(uid, raw)
+                    // 文件里是"响应头+body"原始字节，先去掉响应头，再按 content-encoding 解压
+                    val raw = getHttpRecordFileById(id).readBytes()
+                    var body = raw.httpBody()
+                    val encoding = session.response.contentEncoding.orEmpty().lowercase()
+                    if (encoding.contains("gzip")) {
+                        body = runCatching { body.uncompressGzip() }.getOrDefault(body)
+                    }
+                    val rawText = body.toString(Charsets.UTF_8)
+                    val uid = extractUid(rawText)
+                    UidCaptureState.update(uid, rawText)
                 }
             }
         }
