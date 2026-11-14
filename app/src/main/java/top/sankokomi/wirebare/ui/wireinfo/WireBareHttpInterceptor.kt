@@ -91,9 +91,17 @@ class WireBareHttpInterceptor(
         if (targetIds.remove(id)) {
             withContext(Dispatchers.IO) {
                 runCatching {
-                    // 文件里是"响应头+body"原始字节，先去掉响应头，再按 content-encoding 解压
+                    // 文件里是"响应头+body"原始字节，先去掉响应头
                     val raw = getHttpRecordFileById(id).readBytes()
                     var body = raw.httpBody()
+                    // Transfer-Encoding: chunked 时需要解分块
+                    val isChunked = session.response.formatHead.orEmpty().any {
+                        it.contains("chunked", ignoreCase = true)
+                    }
+                    if (isChunked) {
+                        body = runCatching { dechunk(body) }.getOrDefault(body)
+                    }
+                    // Content-Encoding: gzip 时解压
                     val encoding = session.response.contentEncoding.orEmpty().lowercase()
                     if (encoding.contains("gzip")) {
                         body = runCatching { body.uncompressGzip() }.getOrDefault(body)
@@ -105,6 +113,40 @@ class WireBareHttpInterceptor(
             }
         }
         super.onResponseFinished(chain, session, index)
+    }
+
+    /**
+     * 解 HTTP chunked 分块传输编码。
+     * 格式: <hexSize>\r\n<data>\r\n ... 0\r\n\r\n
+     * 若数据不是合法 chunked 格式，原样返回。
+     */
+    private fun dechunk(data: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        var pos = 0
+        while (pos < data.size) {
+            var lineEnd = -1
+            var i = pos
+            while (i < data.size - 1) {
+                if (data[i] == '\r'.code.toByte() && data[i + 1] == '\n'.code.toByte()) {
+                    lineEnd = i
+                    break
+                }
+                i++
+            }
+            if (lineEnd < 0) break
+            val sizeLine = String(data, pos, lineEnd - pos, Charsets.US_ASCII)
+            val sizeStr = sizeLine.substringBefore(';').trim()
+            val chunkSize = sizeStr.toIntOrNull(16) ?: return data
+            if (chunkSize == 0) break
+            val dataStart = lineEnd + 2
+            val dataEnd = dataStart + chunkSize
+            if (dataEnd > data.size) break
+            out.write(data, dataStart, chunkSize)
+            pos = dataEnd + 2
+            if (pos > data.size) break
+        }
+        val result = out.toByteArray()
+        return if (result.isEmpty()) data else result
     }
 
     /**
