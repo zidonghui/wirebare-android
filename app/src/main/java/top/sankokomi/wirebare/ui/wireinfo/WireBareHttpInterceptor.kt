@@ -6,6 +6,7 @@ import top.sankokomi.wirebare.kernel.interceptor.http.async.AsyncHttpInterceptCh
 import top.sankokomi.wirebare.kernel.interceptor.http.async.AsyncHttpInterceptor
 import top.sankokomi.wirebare.kernel.interceptor.http.async.AsyncHttpInterceptorFactory
 import top.sankokomi.wirebare.ui.record.HttpRecorder
+import top.sankokomi.wirebare.ui.record.id
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
