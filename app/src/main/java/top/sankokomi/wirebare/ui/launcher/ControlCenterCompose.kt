@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,11 +33,14 @@ import top.sankokomi.wirebare.ui.resources.AppRoundCornerBox
 import top.sankokomi.wirebare.ui.resources.Colors
 import top.sankokomi.wirebare.ui.resources.RealColumn
 import top.sankokomi.wirebare.ui.resources.StatusBarSpacer
+import top.sankokomi.wirebare.ui.resources.Typographies
+import top.sankokomi.wirebare.ui.wireinfo.UidCaptureState
 
 @Composable
 fun LauncherUI.PageControlCenter() {
     var wireBareStatus by remember { mutableStateOf(ProxyStatus.DEAD) }
     var maybeUnsupportedIPv6 by remember { mutableStateOf(false) }
+    val capturedUid by UidCaptureState.uidFlow.collectAsState()
     LaunchedEffect(Unit) {
         proxyStatusFlow.collect {
             maybeUnsupportedIPv6 = false
@@ -62,7 +66,31 @@ fun LauncherUI.PageControlCenter() {
     ) {
         StatusBarSpacer(56.dp)
         ControlBox(wireBareStatus, maybeUnsupportedIPv6)
+        Spacer(modifier = Modifier.height(12.dp))
+        UidBox(capturedUid)
         Spacer(modifier = Modifier.height(80.dp))
+    }
+}
+
+@Composable
+private fun UidBox(uid: String?) {
+    AppRoundCornerBox {
+        RealColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Text(
+                text = "checkLogin 捕获到的 UID",
+                style = Typographies.titleSmall
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = uid ?: "等待捕获…（启动代理后访问目标接口）",
+                style = Typographies.bodySmall,
+                color = if (uid != null) Colors.primary else Typographies.bodySmall.color
+            )
+        }
     }
 }
 
